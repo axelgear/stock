@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Stock Trading Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .control-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .control-group {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        select, input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border 0.3s;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .metric-value {
+            font-weight: 700;
+            color: #333;
+        }
+
+        .metric-value.positive {
+            color: #10b981;
+        }
+
+        .metric-value.negative {
+            color: #ef4444;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-top: 20px;
+        }
+
+        .signal-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+
+        .signal-buy {
+            background: #10b981;
+            color: white;
+        }
+
+        .signal-sell {
+            background: #ef4444;
+            color: white;
+        }
+
+        .signal-hold {
+            background: #6b7280;
+            color: white;
+        }
+
+        .recommendations {
+            margin-top: 15px;
+        }
+
+        .recommendation-item {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-size: 1.2rem;
+        }
+
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .filter-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .filter-table th,
+        .filter-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .filter-table th {
+            background: #f9fafb;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .filter-table tr:hover {
+            background: #f9fafb;
+            cursor: pointer;
+        }
+
+        .sort-arrow {
+            font-size: 0.8rem;
+            color: #999;
+            margin-left: 5px;
+        }
+
+        #allStocksTable tbody tr {
+            transition: background 0.2s;
+        }
+
+        #allStocksTable tbody tr:hover {
+            background: #f0f4ff;
+            transform: scale(1.01);
+        }
+
+        .price-up {
+            color: #10b981 !important;
+            font-weight: 600;
+        }
+
+        .price-down {
+            color: #ef4444 !important;
+            font-weight: 600;
+        }
+
+        .price-neutral {
+            color: #6b7280 !important;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📈 AI Stock Trading Dashboard</h1>
+            <p>Advanced predictions, auto-validation, and intelligent recommendations</p>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('analysis')">Analysis</div>
+            <div class="tab" onclick="switchTab('list')">All Stocks</div>
+            <div class="tab" onclick="switchTab('filter')">Filter</div>
+            <div class="tab" onclick="switchTab('strategies')">Strategies</div>
+        </div>
+
+        <!-- Analysis Tab -->
+        <div id="analysis-tab" class="tab-content active">
+            <div class="controls">
+                <div class="control-row">
+                    <div class="control-group">
+                        <label for="stockSelect">Select Stock</label>
+                        <select id="stockSelect" onchange="loadStockData()">
+                            <option value="">Loading stocks...</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="periodSelect">Period</label>
+                        <select id="periodSelect" onchange="loadStockData()">
+                            <option value="1m">1 Month</option>
+                            <option value="3m">3 Months</option>
+                            <option value="6m">6 Months</option>
+                            <option value="1y" selected>1 Year</option>
+                            <option value="2y">2 Years</option>
+                            <option value="5y">5 Years</option>
+                            <option value="all">All Time</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>&nbsp;</label>
+                        <button onclick="getPrediction()">🤖 Get AI Prediction</button>
+                    </div>
+                    <div class="control-group">
+                        <label>&nbsp;</label>
+                        <button onclick="validatePredictions()">✅ Validate</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="error" class="error" style="display: none;"></div>
+
+            <div class="grid">
+                <div class="card">
+                    <h2>Current Price</h2>
+                    <div id="currentMetrics">
+                        <div class="loading">Select a stock to view data</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>AI Prediction</h2>
+                    <div id="predictionMetrics">
+                        <div class="loading">Click "Get AI Prediction" to generate</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Trading Signal</h2>
+                    <div id="tradingSignal">
+                        <div class="loading">Waiting for prediction...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Price Chart</h2>
+                <div class="chart-container">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Recommendations</h2>
+                <div id="recommendations" class="recommendations">
+                    <div class="loading">Generate prediction to see recommendations</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- All Stocks List Tab -->
+        <div id="list-tab" class="tab-content">
+            <div class="card">
+                <h2>All Stocks - Today's Prices</h2>
+                <div style="margin-bottom: 20px; border: 2px solid #667eea; border-radius: 8px; padding: 15px; background: #f8f9ff;">
+                    <div style="margin-bottom: 10px;">
+                        <strong style="color: #667eea;">💾 Database Mode (FAST!):</strong>
+                        <span style="color: #666; font-size: 0.9em; margin-left: 10px;">Load all stocks instantly from local database</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <button onclick="syncDatabaseFromCSV()" style="background: #10b981; color: white;">
+                            🔄 Sync Database First
+                        </button>
+                        <button onclick="loadFromDatabase()" style="background: #667eea; color: white;">
+                            ⚡ Load from Database
+                        </button>
+                        <button onclick="updateTodayOnly()" style="background: #f59e0b; color: white;">
+                            📅 Update Today Only
+                        </button>
+                        <button onclick="showDatabaseStats()" style="background: #6b7280; color: white;">
+                            📊 DB Stats
+                        </button>
+                        <button onclick="generatePredictions()" style="background: #8b5cf6; color: white;">
+                            🔮 Generate Predictions
+                        </button>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 0.85em; color: #666;">
+                        💡 <strong>First time?</strong> Click "Sync Database First" (one-time, ~2 min). 
+                        Then use "Load from Database" (instant!). Generate predictions for AI forecasts.
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px; padding: 10px; background: #fff3cd; border-radius: 8px;">
+                    <strong style="color: #856404;">🐌 Slow Mode (CSV Loading):</strong>
+                    <button onclick="loadAllStocks()" style="margin-left: 10px; background: #dc3545; color: white;">
+                        🔄 Load from CSV (Slow)
+                    </button>
+                    <span style="color: #856404; font-size: 0.85em; margin-left: 10px;">
+                        ⚠️ Takes 30-60 seconds, use only if database not synced
+                    </span>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <span id="stocksLoading" style="color: #667eea; display: none; font-weight: bold;">
+                        Loading... <span id="loadProgress">0/0</span>
+                    </span>
+                    <span id="stocksCount" style="color: #666; font-weight: bold;"></span>
+                </div>
+                
+                <div style="overflow-x: auto;">
+                    <table class="filter-table" id="allStocksTable">
+                        <thead>
+                            <tr>
+                                <th onclick="sortStocksTable(0)" style="cursor: pointer;">
+                                    Stock <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(1)" style="cursor: pointer;">
+                                    Today (₹) <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(2)" style="cursor: pointer;">
+                                    Today % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(3)" style="cursor: pointer;">
+                                    Yesterday % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(4)" style="cursor: pointer;">
+                                    Day-2 % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(5)" style="cursor: pointer;">
+                                    Day-3 % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(6)" style="cursor: pointer;">
+                                    Day-4 % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(7)" style="cursor: pointer;">
+                                    Day-5 % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(8)" style="cursor: pointer;">
+                                    Day-6 % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(9)" style="cursor: pointer;">
+                                    Last 7d % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(10)" style="cursor: pointer;">
+                                    7-14d % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(11)" style="cursor: pointer;">
+                                    14-21d % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(12)" style="cursor: pointer;">
+                                    21-31d % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(13)" style="cursor: pointer;">
+                                    Predicted ₹ <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(14)" style="cursor: pointer;">
+                                    Predicted % <span class="sort-arrow">↕</span>
+                                </th>
+                                <th onclick="sortStocksTable(15)" style="cursor: pointer;">
+                                    Volume <span class="sort-arrow">↕</span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="allStocksTableBody">
+                            <tr>
+                                <td colspan="16" style="text-align: center; padding: 40px;">
+                                    Click "Load from Database" to load data
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter Tab -->
+        <div id="filter-tab" class="tab-content">
+            <div class="card">
+                <h2>Filter Stocks</h2>
+                <div class="control-row">
+                    <div class="control-group">
+                        <label>Min Price</label>
+                        <input type="number" id="filterPriceMin" placeholder="Min Price">
+                    </div>
+                    <div class="control-group">
+                        <label>Max Price</label>
+                        <input type="number" id="filterPriceMax" placeholder="Max Price">
+                    </div>
+                    <div class="control-group">
+                        <label>Min 1D Return %</label>
+                        <input type="number" id="filterReturns1d" placeholder="e.g. 2">
+                    </div>
+                    <div class="control-group">
+                        <label>Sort By</label>
+                        <select id="filterSortBy">
+                            <option value="returns_1d">1D Returns</option>
+                            <option value="returns_5d">5D Returns</option>
+                            <option value="returns_1m">1M Returns</option>
+                            <option value="volume">Volume</option>
+                            <option value="price">Price</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>&nbsp;</label>
+                        <button onclick="filterStocks()">🔍 Filter</button>
+                    </div>
+                </div>
+
+                <table class="filter-table" id="filterResults">
+                    <thead>
+                        <tr>
+                            <th>Stock</th>
+                            <th>Price</th>
+                            <th>1D %</th>
+                            <th>5D %</th>
+                            <th>1M %</th>
+                            <th>Volume</th>
+                        </tr>
+                    </thead>
+                    <tbody id="filterTableBody">
+                        <tr><td colspan="6" style="text-align: center; padding: 40px;">Click Filter to search stocks</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Strategies Tab -->
+        <div id="strategies-tab" class="tab-content">
+            <div class="grid">
+                <div class="card">
+                    <h2>Aggressive Strategy</h2>
+                    <div id="strategyAggressive" class="loading">Loading...</div>
+                </div>
+                <div class="card">
+                    <h2>Moderate Strategy</h2>
+                    <div id="strategyModerate" class="loading">Loading...</div>
+                </div>
+                <div class="card">
+                    <h2>Conservative Strategy</h2>
+                    <div id="strategyConservative" class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=multicolumn001"></script>
+</body>
+</html>
+

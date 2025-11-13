@@ -1,0 +1,215 @@
+╔═══════════════════════════════════════════════════════════════════╗
+║                                                                   ║
+║     🚀 LAUNCH AI TRADING DASHBOARD - STEP BY STEP                ║
+║                                                                   ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+⚠️  IMPORTANT: Follow these exact steps!
+
+═══════════════════════════════════════════════════════════════════
+
+STEP 1: Open Terminal
+──────────────────────
+Open a new terminal window
+
+
+STEP 2: Navigate to Project
+────────────────────────────
+cd /www/wwwroot/axel/TRADING
+
+
+STEP 3: Launch the Dashboard
+─────────────────────────────
+./run_dashboard.sh
+
+OR manually:
+
+source venv/bin/activate
+python backend/app.py
+
+
+STEP 4: Wait for Server to Start
+─────────────────────────────────
+You should see:
+
+   🚀 Stock Trading API Server
+   ══════════════════════════════
+   
+   📡 API Endpoints:
+      GET  /api/stocks
+      ...
+   
+   🌐 Server running on: http://localhost:5050
+   
+   * Running on http://127.0.0.1:5050
+   * Running on http://172.x.x.x:5050
+
+
+STEP 5: Open Browser
+─────────────────────
+Open your web browser and go to:
+
+   http://localhost:5050
+
+   OR
+
+   http://127.0.0.1:5050
+
+
+STEP 6: Verify Dashboard Loads
+───────────────────────────────
+You should see:
+- Purple gradient header
+- "AI Stock Trading Dashboard" title
+- Three tabs: Analysis, Filter, Strategies
+- Stock selection dropdown
+- Period selection
+- Buttons for "Get AI Prediction" and "Validate"
+
+═══════════════════════════════════════════════════════════════════
+
+🐛 TROUBLESHOOTING:
+
+Problem 1: Port already in use
+───────────────────────────────
+Error: "Address already in use"
+
+Solution:
+# Find and kill process on port 5050
+lsof -ti:5050 | xargs kill -9
+
+# Then restart
+./run_dashboard.sh
+
+
+Problem 2: Blank page / Nothing showing
+────────────────────────────────────────
+Solution A: Check browser console (F12)
+- Look for any JavaScript errors
+- Check if API calls are failing
+
+Solution B: Verify files exist
+ls -la frontend/index.html
+ls -la frontend/app.js
+
+Solution C: Hard refresh browser
+- Press Ctrl+Shift+R (or Cmd+Shift+R on Mac)
+- This clears cache
+
+
+Problem 3: "Module not found" errors
+─────────────────────────────────────
+Solution:
+source venv/bin/activate
+pip install flask flask-cors
+
+
+Problem 4: No stocks in dropdown
+─────────────────────────────────
+Solution: Download stock data first
+source venv/bin/activate
+python fetch_stocks.py
+
+
+Problem 5: API errors
+─────────────────────
+Check backend terminal for error messages
+Usually shows:
+- File not found errors
+- Import errors
+- Data format issues
+
+═══════════════════════════════════════════════════════════════════
+
+✅ VERIFICATION CHECKLIST:
+
+□ Terminal shows "Server running on http://localhost:5050"
+□ No error messages in terminal
+□ Browser opens http://localhost:5050
+□ Page loads with purple header
+□ Stock dropdown is visible
+□ Tabs (Analysis, Filter, Strategies) are clickable
+□ Browser console (F12) shows no errors
+
+═══════════════════════════════════════════════════════════════════
+
+📋 NEXT STEPS AFTER DASHBOARD LOADS:
+
+1. Select a stock from dropdown
+2. Click "Get AI Prediction"
+3. Wait 10-30 seconds for model training
+4. Review prediction results
+5. Check recommendations
+6. Use Filter tab to find top stocks
+
+═══════════════════════════════════════════════════════════════════
+
+💡 QUICK TEST:
+
+Open terminal and run:
+cd /www/wwwroot/axel/TRADING
+curl http://localhost:5050/api/stocks
+
+If you see JSON with stock list, backend is working!
+If you see HTML, frontend is being served!
+
+═══════════════════════════════════════════════════════════════════
+
+🆘 STILL NOT WORKING?
+
+1. Check if virtual environment is activated:
+   which python
+   # Should show: /www/wwwroot/axel/TRADING/venv/bin/python
+
+2. Check if Flask is installed:
+   python -c "import flask; print('Flask OK')"
+
+3. Check if files are in correct location:
+   ls -la backend/app.py
+   ls -la frontend/index.html
+   ls -la frontend/app.js
+
+4. Try accessing directly:
+   python -c "from backend.app import app; print('Import OK')"
+
+5. Check EOD directory:
+   ls -la EOD/ | head -10
+
+═══════════════════════════════════════════════════════════════════
+
+🔥 NUCLEAR OPTION (If nothing else works):
+
+cd /www/wwwroot/axel/TRADING
+source venv/bin/activate
+
+# Start Python interactive mode
+python
+
+# Then type:
+from flask import Flask, send_from_directory
+app = Flask(__name__, static_folder='frontend')
+
+@app.route('/')
+def index():
+    return send_from_directory('frontend', 'index.html')
+
+app.run(host='0.0.0.0', port=5050, debug=True)
+
+# Then open http://localhost:5050
+
+═══════════════════════════════════════════════════════════════════
+
+📞 GET HELP:
+
+Read complete documentation:
+cat AI_SYSTEM_README.md
+
+Check logs:
+# Backend will show errors in terminal where it's running
+# Frontend errors visible in browser console (F12)
+
+═══════════════════════════════════════════════════════════════════
+
+Your dashboard should now be running! 🚀📈
+
+

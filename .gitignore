@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data directories
+EOD/
+processed/
+models/
+*.csv
+!EQUITY_L.csv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Images and plots
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Model files
+*.pkl
+*.h5
+*.joblib
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Predictions
+predictions.json
+
