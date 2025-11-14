@@ -76,19 +76,74 @@ def init_database():
         ON predictions(stock_name, prediction_date DESC)
     ''')
     
+    # Create validation results table for tracking accuracy
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS validation_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stock_name TEXT NOT NULL,
+            validation_date DATE NOT NULL,
+            predicted_price REAL,
+            actual_price REAL,
+            predicted_change_pct REAL,
+            actual_change_pct REAL,
+            price_error REAL,
+            price_error_pct REAL,
+            direction_correct BOOLEAN,
+            confidence REAL,
+            model_used TEXT,
+            accuracy_score REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(stock_name, validation_date)
+        )
+    ''')
+    
+    # Create additional indexes for performance
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_validation_stock_date 
+        ON validation_results(stock_name, validation_date DESC)
+    ''')
+    
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_validation_model 
+        ON validation_results(model_used, validation_date DESC)
+    ''')
+    
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_stock_close_date 
+        ON stock_data(stock_name, close DESC, date DESC)
+    ''')
+    
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_predictions_confidence 
+        ON predictions(confidence DESC, prediction_date DESC)
+    ''')
+    
     conn.commit()
     conn.close()
-    print(f"✓ Database initialized: {DB_FILE}")
+    print(f"✓ Database initialized with optimized indexes: {DB_FILE}")
 
 def save_stock_to_db(stock_name, df):
-    """Save stock dataframe to database"""
+    """Save stock dataframe to database with improved error handling and deduplication"""
     conn = sqlite3.connect(DB_FILE)
     
     try:
         # Prepare data
         df_copy = df.copy()
         df_copy['stock_name'] = stock_name
+        
+        # Handle different date formats
+        if 'Date' in df_copy.columns:
+            df_copy['Date'] = pd.to_datetime(df_copy['Date']).dt.strftime('%Y-%m-%d')
+        else:
+            # If Date is index, reset it
+            df_copy = df_copy.reset_index()
         df_copy['Date'] = pd.to_datetime(df_copy['Date']).dt.strftime('%Y-%m-%d')
+        
+        # Ensure all required columns exist
+        required_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+        missing_columns = [col for col in required_columns if col not in df_copy.columns]
+        if missing_columns:
+            return False, f"Missing required columns: {missing_columns}"
         
         # Select only needed columns
         columns_map = {
@@ -103,12 +158,18 @@ def save_stock_to_db(stock_name, df):
         
         df_save = df_copy[list(columns_map.keys())].rename(columns=columns_map)
         
-        # Insert or replace data
+        # Remove duplicates based on stock_name and date
+        df_save = df_save.drop_duplicates(subset=['stock_name', 'date'], keep='last')
+        
+        # Delete existing data for this stock to avoid duplicates
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM stock_data WHERE stock_name = ?', (stock_name,))
+        
+        # Insert new data
         df_save.to_sql('stock_data', conn, if_exists='append', index=False)
         
         # Update metadata
-        last_row = df.iloc[-1]
-        cursor = conn.cursor()
+        last_row = df_copy.iloc[-1]
         cursor.execute('''
             INSERT OR REPLACE INTO sync_metadata 
             (stock_name, last_sync, record_count, last_date, last_close)
@@ -116,13 +177,13 @@ def save_stock_to_db(stock_name, df):
         ''', (
             stock_name,
             datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            len(df),
-            last_row['Date'].strftime('%Y-%m-%d') if isinstance(last_row['Date'], pd.Timestamp) else str(last_row['Date']),
+            len(df_save),
+            last_row['Date'],
             float(last_row['Close'])
         ))
         
         conn.commit()
-        return True, len(df)
+        return True, len(df_save)
         
     except Exception as e:
         conn.rollback()
@@ -455,6 +516,165 @@ def clear_old_predictions(days_to_keep=7):
         deleted = cursor.rowcount
         conn.commit()
         return deleted
+    finally:
+        conn.close()
+
+def save_validation_result(stock_name, validation_date, predicted_price, actual_price, 
+                          predicted_change_pct, actual_change_pct, confidence, model_used):
+    """Save validation result to database for accuracy tracking"""
+    conn = sqlite3.connect(DB_FILE)
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Calculate metrics
+        price_error = abs(predicted_price - actual_price)
+        price_error_pct = (price_error / actual_price) * 100
+        direction_correct = (predicted_change_pct > 0) == (actual_change_pct > 0)
+        accuracy_score = max(0, 100 - price_error_pct)
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO validation_results 
+            (stock_name, validation_date, predicted_price, actual_price, 
+             predicted_change_pct, actual_change_pct, price_error, price_error_pct,
+             direction_correct, confidence, model_used, accuracy_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (stock_name, validation_date, predicted_price, actual_price,
+              predicted_change_pct, actual_change_pct, price_error, price_error_pct,
+              direction_correct, confidence, model_used, accuracy_score))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def get_validation_results(stock_name=None, model_used=None, days=30):
+    """Get validation results with optional filtering"""
+    conn = sqlite3.connect(DB_FILE)
+    
+    try:
+        query = '''
+            SELECT * FROM validation_results 
+            WHERE validation_date >= date('now', '-{} days')
+        '''.format(days)
+        
+        params = []
+        
+        if stock_name:
+            query += ' AND stock_name = ?'
+            params.append(stock_name)
+        
+        if model_used:
+            query += ' AND model_used = ?'
+            params.append(model_used)
+        
+        query += ' ORDER BY validation_date DESC'
+        
+        df = pd.read_sql_query(query, conn, params=params)
+        return df
+    finally:
+        conn.close()
+
+def get_model_performance_stats():
+    """Get comprehensive model performance statistics"""
+    conn = sqlite3.connect(DB_FILE)
+    
+    try:
+        query = '''
+            SELECT 
+                model_used,
+                COUNT(*) as total_predictions,
+                AVG(accuracy_score) as avg_accuracy,
+                AVG(CASE WHEN direction_correct = 1 THEN 100 ELSE 0 END) as direction_accuracy,
+                AVG(price_error_pct) as avg_error_pct,
+                AVG(confidence) as avg_confidence,
+                MIN(validation_date) as first_prediction,
+                MAX(validation_date) as last_prediction
+            FROM validation_results
+            WHERE validation_date >= date('now', '-30 days')
+            GROUP BY model_used
+            ORDER BY avg_accuracy DESC
+        '''
+        
+        df = pd.read_sql_query(query, conn)
+        return df.to_dict('records')
+    finally:
+        conn.close()
+
+def get_top_performing_stocks(limit=10, metric='accuracy_score'):
+    """Get top performing stocks by prediction accuracy"""
+    conn = sqlite3.connect(DB_FILE)
+    
+    try:
+        query = f'''
+            SELECT 
+                stock_name,
+                COUNT(*) as prediction_count,
+                AVG({metric}) as avg_metric,
+                AVG(CASE WHEN direction_correct = 1 THEN 100 ELSE 0 END) as direction_accuracy,
+                AVG(confidence) as avg_confidence,
+                MAX(validation_date) as last_validation
+            FROM validation_results
+            WHERE validation_date >= date('now', '-30 days')
+            GROUP BY stock_name
+            HAVING prediction_count >= 3
+            ORDER BY avg_metric DESC
+            LIMIT {limit}
+        '''
+        
+        df = pd.read_sql_query(query, conn)
+        return df.to_dict('records')
+    finally:
+        conn.close()
+
+def get_daily_accuracy_trend(days=30):
+    """Get daily accuracy trend for performance tracking"""
+    conn = sqlite3.connect(DB_FILE)
+    
+    try:
+        query = '''
+            SELECT 
+                validation_date,
+                COUNT(*) as prediction_count,
+                AVG(accuracy_score) as avg_accuracy,
+                AVG(CASE WHEN direction_correct = 1 THEN 100 ELSE 0 END) as direction_accuracy,
+                AVG(confidence) as avg_confidence
+            FROM validation_results
+            WHERE validation_date >= date('now', '-{} days')
+            GROUP BY validation_date
+            ORDER BY validation_date ASC
+        '''.format(days)
+        
+        df = pd.read_sql_query(query, conn)
+        return df.to_dict('records')
+    finally:
+        conn.close()
+
+def optimize_database():
+    """Run database optimization commands"""
+    conn = sqlite3.connect(DB_FILE)
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Analyze tables for better query planning
+        cursor.execute('ANALYZE')
+        
+        # Vacuum to defragment and reclaim space
+        cursor.execute('VACUUM')
+        
+        # Update statistics
+        cursor.execute('PRAGMA optimize')
+        
+        conn.commit()
+        print("✓ Database optimized successfully")
+        return True
+    except Exception as e:
+        print(f"❌ Database optimization failed: {e}")
+        return False
     finally:
         conn.close()
 

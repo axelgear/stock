@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Dashboard Debug Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .debug-section {
+            background: white;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        pre { background: #f0f0f0; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        button { padding: 10px 15px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; background: #007bff; color: white; }
+        button:hover { background: #0056b3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f2f2f2; }
+        .price-up { color: green; font-weight: bold; }
+        .price-down { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Stock Dashboard Debug Tool</h1>
+    
+    <div class="debug-section">
+        <h2>1. API Connectivity Test</h2>
+        <button onclick="testAPI()">Test API Connection</button>
+        <div id="apiResult"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2>2. Database Stats</h2>
+        <button onclick="testDatabaseStats()">Get Database Stats</button>
+        <div id="dbStatsResult"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2>3. Load Stocks Data</h2>
+        <button onclick="testLoadStocks()">Load All Stocks</button>
+        <div id="loadStocksResult"></div>
+    </div>
+
+    <div class="debug-section">
+        <h2>4. Stock Data Table</h2>
+        <div id="stockCount"></div>
+        <table id="stocksTable" style="display: none;">
+            <thead>
+                <tr>
+                    <th>Stock</th>
+                    <th>Price</th>
+                    <th>Today %</th>
+                    <th>7-Day %</th>
+                    <th>Volume</th>
+                </tr>
+            </thead>
+            <tbody id="stocksTableBody"></tbody>
+        </table>
+    </div>
+
+    <div class="debug-section">
+        <h2>5. Console Log</h2>
+        <div id="consoleLog" style="background: #000; color: #0f0; padding: 15px; border-radius: 4px; max-height: 300px; overflow-y: scroll; font-family: monospace;"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:5050/api';
+        let debugLog = '';
+
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            debugLog += `[${timestamp}] ${message}\n`;
+            document.getElementById('consoleLog').innerHTML = debugLog.replace(/\n/g, '<br>');
+            console.log(message);
+        }
+
+        async function testAPI() {
+            const result = document.getElementById('apiResult');
+            log('🔄 Testing API connectivity...');
+            
+            try {
+                const response = await axios.get(`${API_BASE}/stocks`);
+                log(`✅ API accessible: ${response.status} ${response.statusText}`);
+                log(`📊 Available stocks: ${response.data.data?.length || 0}`);
+                
+                result.innerHTML = `
+                    <div class="success">✅ API Working</div>
+                    <pre>${JSON.stringify(response.data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                log(`❌ API error: ${error.message}`);
+                result.innerHTML = `<div class="error">❌ API Error: ${error.message}</div>`;
+            }
+        }
+
+        async function testDatabaseStats() {
+            const result = document.getElementById('dbStatsResult');
+            log('🔄 Getting database stats...');
+            
+            try {
+                const response = await axios.get(`${API_BASE}/db/stats`);
+                log(`✅ Database stats received`);
+                
+                result.innerHTML = `
+                    <div class="success">✅ Database Connected</div>
+                    <pre>${JSON.stringify(response.data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                log(`❌ Database stats error: ${error.message}`);
+                result.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function testLoadStocks() {
+            const result = document.getElementById('loadStocksResult');
+            log('🔄 Loading stocks from database...');
+            
+            try {
+                const response = await axios.get(`${API_BASE}/db/all-stocks-fast`);
+                log(`✅ Stocks loaded: ${response.data.data?.length || 0} stocks`);
+                
+                if (response.data.success && response.data.data) {
+                    const stocks = response.data.data;
+                    
+                    result.innerHTML = `
+                        <div class="success">✅ Loaded ${stocks.length} stocks</div>
+                        <div>Sample data:</div>
+                        <pre>${JSON.stringify(stocks.slice(0, 2), null, 2)}</pre>
+                    `;
+                    
+                    // Display in table
+                    displayStocksInTable(stocks);
+                    
+                } else {
+                    log(`❌ Failed to load stocks: ${response.data.error || 'Unknown error'}`);
+                    result.innerHTML = `<div class="error">❌ Failed: ${response.data.error || 'Unknown error'}</div>`;
+                }
+            } catch (error) {
+                log(`❌ Load stocks error: ${error.message}`);
+                result.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        function displayStocksInTable(stocks) {
+            const table = document.getElementById('stocksTable');
+            const tbody = document.getElementById('stocksTableBody');
+            const countDiv = document.getElementById('stockCount');
+            
+            log(`📊 Displaying ${stocks.length} stocks in table`);
+            
+            countDiv.innerHTML = `<div class="info">📊 Showing ${stocks.length} stocks</div>`;
+            
+            tbody.innerHTML = stocks.slice(0, 20).map(stock => {
+                const priceClass = stock.today_pct > 0 ? 'price-up' : stock.today_pct < 0 ? 'price-down' : '';
+                
+                return `
+                    <tr>
+                        <td><strong>${stock.stock_name}</strong></td>
+                        <td>₹${stock.today_close?.toFixed(2) || 'N/A'}</td>
+                        <td class="${priceClass}">${stock.today_pct ? (stock.today_pct >= 0 ? '+' : '') + stock.today_pct.toFixed(2) + '%' : 'N/A'}</td>
+                        <td class="${stock.week_7day_pct >= 0 ? 'price-up' : 'price-down'}">${stock.week_7day_pct ? (stock.week_7day_pct >= 0 ? '+' : '') + stock.week_7day_pct.toFixed(2) + '%' : 'N/A'}</td>
+                        <td>${stock.volume ? stock.volume.toLocaleString() : 'N/A'}</td>
+                    </tr>
+                `;
+            }).join('');
+            
+            table.style.display = 'table';
+            log(`✅ Table updated with first 20 stocks`);
+        }
+
+        // Auto-run tests on load
+        window.addEventListener('load', () => {
+            log('🚀 Debug tool loaded');
+            setTimeout(() => {
+                testAPI();
+                setTimeout(() => testDatabaseStats(), 1000);
+                setTimeout(() => testLoadStocks(), 2000);
+            }, 500);
+        });
+    </script>
+</body>
+</html>

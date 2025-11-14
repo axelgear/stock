@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced AI Stock Trading Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --secondary: #06b6d4;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: var(--gray-900);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1920px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 1rem;
+            padding: 1.5rem 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .header h1 {
+            color: var(--primary);
+            font-size: 2rem;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .header p {
+            color: var(--gray-600);
+            font-size: 1rem;
+            margin: 0.5rem 0 0 0;
+        }
+
+        .status-badges {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .badge.success { background: var(--success); color: white; }
+        .badge.warning { background: var(--warning); color: white; }
+        .badge.info { background: var(--secondary); color: white; }
+
+        /* Navigation */
+        .nav-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.5rem;
+            border-radius: 1rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .nav-tab {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .nav-tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .nav-tab.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: var(--shadow);
+        }
+
+        /* Cards */
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .card-title {
+            color: var(--gray-800);
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        /* Grid System */
+        .grid {
+            display: grid;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+        .grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-decoration: none;
+            line-height: 1;
+        }
+
+        .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+        .btn:active { transform: translateY(0); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-secondary { background: var(--secondary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-warning { background: var(--warning); color: white; }
+        .btn-error { background: var(--error); color: white; }
+        .btn-outline { background: transparent; border: 2px solid var(--primary); color: var(--primary); }
+
+        .btn-sm { padding: 0.5rem 1rem; font-size: 0.75rem; }
+        .btn-lg { padding: 1rem 2rem; font-size: 1rem; }
+
+        /* Form Controls */
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid var(--gray-200);
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            transition: border-color 0.2s;
+            background: white;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        /* Modern Table */
+        .modern-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .modern-table th {
+            background: var(--gray-50);
+            padding: 1rem;
+            text-align: left;
+            font-weight: 700;
+            color: var(--gray-700);
+            border-bottom: 1px solid var(--gray-200);
+            position: sticky;
+            top: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .modern-table th:hover {
+            background: var(--gray-100);
+        }
+
+        .modern-table th i {
+            margin-left: 0.5rem;
+            opacity: 0.5;
+        }
+
+        .modern-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--gray-100);
+        }
+
+        .modern-table tr:hover {
+            background: var(--gray-50);
+        }
+
+        .modern-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Stats Cards */
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            opacity: 0.9;
+            font-size: 0.875rem;
+        }
+
+        .stat-change {
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        /* Price Styling */
+        .price-up { color: var(--success) !important; font-weight: 600; }
+        .price-down { color: var(--error) !important; font-weight: 600; }
+        .price-neutral { color: var(--gray-500) !important; }
+
+        /* Loading & States */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            color: var(--gray-500);
+            font-size: 1.125rem;
+        }
+
+        .loading i {
+            margin-right: 0.5rem;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #fef2f2;
+            color: #991b1b;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #fecaca;
+            margin-bottom: 1rem;
+        }
+
+        .success-message {
+            background: #f0fdf4;
+            color: #166534;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #bbf7d0;
+            margin-bottom: 1rem;
+        }
+
+        /* Advanced Controls */
+        .advanced-controls {
+            background: var(--gray-50);
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--gray-200);
+        }
+
+        .control-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            align-items: end;
+        }
+
+        /* Prediction Cards */
+        .prediction-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .prediction-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            transform: translate(30px, -30px);
+        }
+
+        .prediction-value {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+        }
+
+        .prediction-confidence {
+            font-size: 0.875rem;
+            opacity: 0.9;
+        }
+
+        /* Chart Container */
+        .chart-container {
+            position: relative;
+            height: 400px;
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1rem;
+        }
+
+        /* Model Selection */
+        .model-selector {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .model-option {
+            padding: 0.5rem 1rem;
+            border: 2px solid var(--gray-200);
+            border-radius: 2rem;
+            background: white;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--gray-700);
+            transition: all 0.2s;
+        }
+
+        .model-option.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        .model-option:hover:not(.active) {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        /* Progress Bar */
+        .progress {
+            background: var(--gray-200);
+            border-radius: 1rem;
+            height: 0.5rem;
+            overflow: hidden;
+            margin: 1rem 0;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, var(--success) 0%, var(--secondary) 100%);
+            height: 100%;
+            border-radius: 1rem;
+            transition: width 0.3s ease;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 0.5rem;
+            }
+            
+            .header-content {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .nav-tabs {
+                flex-wrap: wrap;
+            }
+            
+            .control-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .stat-value {
+                font-size: 1.5rem;
+            }
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Animation */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header fade-in">
+            <div class="header-content">
+                <div>
+                    <h1><i class="fas fa-chart-line"></i> Advanced AI Stock Trading Dashboard</h1>
+                    <p>Real-time predictions with LSTM, TrendSpider, and Polynomial Regression models</p>
+                </div>
+                <div class="status-badges">
+                    <div class="badge success" id="systemStatus">
+                        <i class="fas fa-check-circle"></i> System Online
+                    </div>
+                    <div class="badge info" id="modelStatus">
+                        <i class="fas fa-brain"></i> AI Ready
+                    </div>
+                    <div class="badge warning" id="dataStatus">
+                        <i class="fas fa-database"></i> Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="nav-tabs fade-in">
+            <button class="nav-tab active" onclick="switchTab('overview')">
+                <i class="fas fa-tachometer-alt"></i> Overview
+            </button>
+            <button class="nav-tab" onclick="switchTab('predictions')">
+                <i class="fas fa-crystal-ball"></i> AI Predictions
+            </button>
+            <button class="nav-tab" onclick="switchTab('analysis')">
+                <i class="fas fa-chart-area"></i> Analysis
+            </button>
+            <button class="nav-tab" onclick="switchTab('models')">
+                <i class="fas fa-robot"></i> AI Models
+            </button>
+            <button class="nav-tab" onclick="switchTab('validation')">
+                <i class="fas fa-check-double"></i> Validation
+            </button>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="overview-tab" class="tab-content active fade-in">
+            <!-- Stats Grid -->
+            <div class="grid grid-4">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalStocks">--</div>
+                    <div class="stat-label">Total Stocks</div>
+                    <div class="stat-change">
+                        <i class="fas fa-arrow-up"></i> Database Ready
+                    </div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, var(--success) 0%, #059669 100%);">
+                    <div class="stat-value" id="totalPredictions">--</div>
+                    <div class="stat-label">AI Predictions</div>
+                    <div class="stat-change">
+                        <i class="fas fa-brain"></i> Generated Today
+                    </div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, var(--secondary) 0%, #0891b2 100%);">
+                    <div class="stat-value" id="avgAccuracy">--</div>
+                    <div class="stat-label">Avg Accuracy</div>
+                    <div class="stat-change">
+                        <i class="fas fa-target"></i> All Models
+                    </div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);">
+                    <div class="stat-value" id="topPerformer">--</div>
+                    <div class="stat-label">Top Performer</div>
+                    <div class="stat-change">
+                        <i class="fas fa-crown"></i> Best Stock
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-bolt"></i> Quick Actions
+                    </h2>
+                </div>
+                <div class="advanced-controls">
+                    <div class="control-row">
+                        <div>
+                            <button class="btn btn-primary btn-lg" onclick="syncDatabase()">
+                                <i class="fas fa-sync"></i> Sync Database
+                            </button>
+                        </div>
+                        <div>
+                            <button class="btn btn-outline btn-lg" onclick="testSync()">
+                                <i class="fas fa-flask"></i> Test Sync
+                            </button>
+                        </div>
+                        <div>
+                            <button class="btn btn-secondary btn-lg" onclick="loadAllStocks()">
+                                <i class="fas fa-bolt"></i> Load All Stocks
+                            </button>
+                        </div>
+                        <div>
+                            <button class="btn btn-warning btn-lg" onclick="updateTodayData()">
+                                <i class="fas fa-calendar-day"></i> Update Today
+                            </button>
+                        </div>
+                        <div>
+                            <button class="btn btn-success btn-lg" onclick="generateBulkPredictions()">
+                                <i class="fas fa-brain"></i> Generate Predictions
+                            </button>
+                        </div>
+                        <div>
+                            <button class="btn btn-warning" onclick="debugLoadStocks()">
+                                <i class="fas fa-bug"></i> Debug Load
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- All Stocks Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-list"></i> All Stocks
+                    </h2>
+                    <div class="card-actions">
+                        <button class="btn btn-outline btn-sm" onclick="exportStocksData()">
+                            <i class="fas fa-download"></i> Export
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="refreshStocksList()">
+                            <i class="fas fa-refresh"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="stocksLoading" class="loading" style="display: none;">
+                    <i class="fas fa-spinner"></i> Loading stocks...
+                </div>
+                
+                <div style="overflow-x: auto;">
+                    <table class="modern-table" id="stocksTable">
+                        <thead>
+                            <tr>
+                                <th onclick="sortTable(0)">Stock <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable(1)">Price (₹) <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable(2)">Today % <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable(3)">7-Day % <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable(4)">Predicted ₹ <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable(5)">Predicted % <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable(6)">AI Model <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable(7)">Confidence <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable(8)">Volume <i class="fas fa-sort"></i></th>
+                            </tr>
+                        </thead>
+                        <tbody id="stocksTableBody">
+                            <tr>
+                                <td colspan="9" style="text-align: center; padding: 3rem;">
+                                    <i class="fas fa-info-circle"></i> Click "Load All Stocks" to view data
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Predictions Tab -->
+        <div id="predictions-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-crystal-ball"></i> Advanced AI Predictions
+                    </h2>
+                </div>
+                
+                <div class="advanced-controls">
+                    <div class="control-row">
+                        <div class="form-group">
+                            <label class="form-label">Prediction Model</label>
+                            <select class="form-control" id="predictionModel">
+                                <option value="advanced_ensemble">🎯 Advanced Ensemble</option>
+                                <option value="lstm">🧠 LSTM Neural Network</option>
+                                <option value="polynomial">📈 Polynomial Regression</option>
+                                <option value="ensemble_meta">🔮 Meta Ensemble</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Number of Stocks</label>
+                            <select class="form-control" id="predictionLimit">
+                                <option value="25">25 Stocks</option>
+                                <option value="50" selected>50 Stocks</option>
+                                <option value="100">100 Stocks</option>
+                                <option value="200">200 Stocks</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Options</label>
+                            <div style="display: flex; gap: 1rem; align-items: center; height: 42px;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+                                    <input type="checkbox" id="forceRefresh"> Force Refresh
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+                                    <input type="checkbox" id="useAdvancedAI" checked> Advanced AI
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <button class="btn btn-primary btn-lg" onclick="generateAdvancedPredictions()">
+                                <i class="fas fa-brain"></i> Generate Predictions
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="predictionProgress" style="display: none;">
+                    <div class="progress">
+                        <div class="progress-bar" id="predictionProgressBar"></div>
+                    </div>
+                    <p style="text-align: center; margin: 0.5rem 0;"><span id="predictionStatus">Initializing...</span></p>
+                </div>
+
+                <!-- Predictions Table -->
+                <div style="overflow-x: auto;">
+                    <table class="modern-table" id="predictionsTable">
+                        <thead>
+                            <tr>
+                                <th onclick="sortPredictionsTable(0)">Stock <i class="fas fa-sort"></i></th>
+                                <th onclick="sortPredictionsTable(1)">Current ₹ <i class="fas fa-sort"></i></th>
+                                <th onclick="sortPredictionsTable(2)">Predicted ₹ <i class="fas fa-sort"></i></th>
+                                <th onclick="sortPredictionsTable(3)">Change % <i class="fas fa-sort"></i></th>
+                                <th onclick="sortPredictionsTable(4)">Confidence <i class="fas fa-sort"></i></th>
+                                <th onclick="sortPredictionsTable(5)">AI Model <i class="fas fa-sort"></i></th>
+                                <th onclick="sortPredictionsTable(6)">Recommendation <i class="fas fa-sort"></i></th>
+                            </tr>
+                        </thead>
+                        <tbody id="predictionsTableBody">
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 3rem;">
+                                    <i class="fas fa-info-circle"></i> Generate predictions to view AI forecasts
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Tab -->
+        <div id="analysis-tab" class="tab-content">
+            <div class="grid grid-2">
+                <!-- Individual Stock Analysis -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">
+                            <i class="fas fa-search"></i> Individual Stock Analysis
+                        </h2>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Select Stock</label>
+                        <select class="form-control" id="analysisStock">
+                            <option value="">Loading stocks...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Period</label>
+                        <select class="form-control" id="analysisPeriod">
+                            <option value="1m">1 Month</option>
+                            <option value="3m">3 Months</option>
+                            <option value="6m">6 Months</option>
+                            <option value="1y" selected>1 Year</option>
+                            <option value="2y">2 Years</option>
+                        </select>
+                    </div>
+                    
+                    <button class="btn btn-primary" onclick="analyzeStock()">
+                        <i class="fas fa-chart-line"></i> Analyze Stock
+                    </button>
+                    
+                    <div id="stockAnalysis" style="margin-top: 1rem;">
+                        <div class="loading">Select a stock to analyze</div>
+                    </div>
+                </div>
+
+                <!-- Market Overview -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">
+                            <i class="fas fa-globe"></i> Market Overview
+                        </h2>
+                    </div>
+                    
+                    <div id="marketOverview">
+                        <div class="loading">
+                            <i class="fas fa-spinner"></i> Loading market data...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-chart-area"></i> Price Chart & Technical Analysis
+                    </h2>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="analysisChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Models Tab -->
+        <div id="models-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-robot"></i> AI Model Performance
+                    </h2>
+                </div>
+                
+                <div id="modelPerformance">
+                    <div class="loading">
+                        <i class="fas fa-spinner"></i> Loading model performance...
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-3">
+                <!-- LSTM Model -->
+                <div class="prediction-card">
+                    <h3><i class="fas fa-brain"></i> LSTM Neural Network</h3>
+                    <div class="prediction-value" id="lstmAccuracy">--</div>
+                    <div class="prediction-confidence">Deep learning for sequential patterns</div>
+                </div>
+
+                <!-- TrendSpider Model -->
+                <div class="prediction-card" style="background: linear-gradient(135deg, var(--success) 0%, #059669 100%);">
+                    <h3><i class="fas fa-spider"></i> TrendSpider Analysis</h3>
+                    <div class="prediction-value" id="trendspiderAccuracy">--</div>
+                    <div class="prediction-confidence">Technical pattern recognition</div>
+                </div>
+
+                <!-- Polynomial Regression -->
+                <div class="prediction-card" style="background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);">
+                    <h3><i class="fas fa-chart-line"></i> Polynomial Regression</h3>
+                    <div class="prediction-value" id="polynomialAccuracy">--</div>
+                    <div class="prediction-confidence">Non-linear trend modeling</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Validation Tab -->
+        <div id="validation-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-check-double"></i> Prediction Validation
+                    </h2>
+                    <div class="card-actions">
+                        <button class="btn btn-primary" onclick="validatePredictions()">
+                            <i class="fas fa-play"></i> Run Validation
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="validationResults">
+                    <div class="loading">Click "Run Validation" to check prediction accuracy</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="modern_dashboard.js"></script>
+</body>
+</html>
