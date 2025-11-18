@@ -627,6 +627,38 @@
                         </div>
                     </div>
                 </div>
+                
+                <!-- Universal AI Section -->
+                <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                    <div class="card-header" style="border-bottom: 1px solid rgba(255,255,255,0.2);">
+                        <h2 class="card-title" style="color: white;">
+                            <i class="fas fa-globe"></i> Universal AI - Learn from ALL Stocks
+                        </h2>
+                    </div>
+                    <p style="margin-bottom: 1rem; opacity: 0.95;">
+                        Train a single AI model on ALL stocks to learn universal market patterns.
+                        This approach identifies patterns that work across the entire market, not just individual stocks.
+                    </p>
+                    <div class="advanced-controls" style="background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3);">
+                        <div class="control-row">
+                            <div>
+                                <button class="btn btn-lg" style="background: white; color: var(--primary);" onclick="trainUniversalModel()">
+                                    <i class="fas fa-graduation-cap"></i> Train Universal Model
+                                </button>
+                            </div>
+                            <div>
+                                <button class="btn btn-lg" style="background: rgba(255,255,255,0.2); color: white; border: 2px solid white;" onclick="generateUniversalPredictions()">
+                                    <i class="fas fa-magic"></i> Universal Predictions
+                                </button>
+                            </div>
+                            <div>
+                                <span id="universalModelStatus" style="color: white; font-weight: 600;">
+                                    <i class="fas fa-info-circle"></i> No universal model trained yet
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- All Stocks Table -->
@@ -636,6 +668,11 @@
                         <i class="fas fa-list"></i> All Stocks
                     </h2>
                     <div class="card-actions">
+                        <input type="text" class="form-control" id="stockSearch" placeholder="Search stocks..." style="width: 200px; display: inline-block; margin-right: 0.5rem;">
+                        <select class="form-control" id="perPageSelect" onchange="changePerPage()" style="width: 100px; display: inline-block; margin-right: 0.5rem;">
+                            <option value="25">25/page</option>
+                            <option value="50" selected>50/page ✅</option>
+                        </select>
                         <button class="btn btn-outline btn-sm" onclick="exportStocksData()">
                             <i class="fas fa-download"></i> Export
                         </button>
@@ -653,15 +690,15 @@
                     <table class="modern-table" id="stocksTable">
                         <thead>
                             <tr>
-                                <th onclick="sortTable(0)">Stock <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable(1)">Price (₹) <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable(2)">Today % <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable(3)">7-Day % <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable(4)">Predicted ₹ <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable(5)">Predicted % <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable(6)">AI Model <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable(7)">Confidence <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable(8)">Volume <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('stock_name')">Stock <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('today_close')">Price (₹) <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('today_pct')">Today % <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('week_7day_pct')">7-Day % <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('predicted_price')">Predicted ₹ <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('predicted_change_pct')">Predicted % <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('model_used')">AI Model <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('confidence')">Confidence <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTableServer('volume')">Volume <i class="fas fa-sort"></i></th>
                             </tr>
                         </thead>
                         <tbody id="stocksTableBody">
@@ -672,6 +709,24 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                
+                <!-- Pagination Controls -->
+                <div id="paginationControls" style="display: none; padding: 1rem; text-align: center; border-top: 1px solid var(--gray-200);">
+                    <button class="btn btn-outline btn-sm" onclick="loadPage(1)" id="firstPageBtn">
+                        <i class="fas fa-angle-double-left"></i> First
+                    </button>
+                    <button class="btn btn-outline btn-sm" onclick="loadPrevPage()" id="prevPageBtn">
+                        <i class="fas fa-angle-left"></i> Prev
+                    </button>
+                    <span id="pageInfo" style="margin: 0 1rem; font-weight: 600;">Page 1 of 1</span>
+                    <button class="btn btn-outline btn-sm" onclick="loadNextPage()" id="nextPageBtn">
+                        Next <i class="fas fa-angle-right"></i>
+                    </button>
+                    <button class="btn btn-outline btn-sm" onclick="loadLastPage()" id="lastPageBtn">
+                        Last <i class="fas fa-angle-double-right"></i>
+                    </button>
+                    <span style="margin-left: 1rem; color: var(--gray-600);" id="totalStocksInfo"></span>
                 </div>
             </div>
         </div>

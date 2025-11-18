@@ -3,21 +3,82 @@
 
 const API_BASE = 'http://localhost:5050/api';
 
-// Global state
+// Global state - MEMORY OPTIMIZED
 let currentStocks = [];
 let currentPredictions = [];
 let analysisChart = null;
 let currentSort = { column: -1, direction: 'asc' };
+
+/* Pagination state */
+let paginationState = {
+    currentPage: 1,
+    perPage: 50,  // DEFAULT: Only 50 stocks at a time
+    totalPages: 1,
+    totalCount: 0,
+    sortBy: 'stock_name',
+    sortOrder: 'asc',
+    search: ''
+};
+
+/* AGGRESSIVE Memory management - Frontend RAM optimization */
+function clearMemory() {
+    console.log('🧹 Clearing memory...');
+    
+    /* Clear large arrays - keep only essentials */
+    if (currentStocks.length > 50) {
+        const old = currentStocks.length;
+        currentStocks = currentStocks.slice(-50);  /* Keep only last 50 */
+        console.log(`  ✂️ Trimmed currentStocks: ${old} → ${currentStocks.length}`);
+    }
+    if (currentPredictions.length > 50) {
+        const old = currentPredictions.length;
+        currentPredictions = currentPredictions.slice(-50);
+        console.log(`  ✂️ Trimmed currentPredictions: ${old} → ${currentPredictions.length}`);
+    }
+    
+    /* Destroy old charts */
+    if (analysisChart) {
+        try {
+            analysisChart.destroy();
+            analysisChart = null;
+            console.log('  🗑️ Destroyed analysisChart');
+        } catch (e) {}
+    }
+    
+    /* Force garbage collection hint (Chrome/Edge) */
+    if (window.gc && typeof window.gc === 'function') {
+        try {
+            window.gc();
+            console.log('  🗑️ Forced garbage collection');
+        } catch (e) {}
+    }
+}
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', () => {
     initializeDashboard();
     loadInitialData();
     setupEventListeners();
+    
+    /* Memory monitoring */
+    if (performance.memory) {
+        setInterval(() => {
+            const used = (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1);
+            const total = (performance.memory.totalJSHeapSize / 1024 / 1024).toFixed(1);
+            console.log(`💾 RAM: ${used}MB / ${total}MB`);
+            
+            /* Auto-cleanup if RAM usage is high */
+            if (performance.memory.usedJSHeapSize > 100 * 1024 * 1024) {  /* 100MB threshold */
+                console.warn('⚠️ High memory usage detected, clearing...');
+                clearMemory();
+            }
+        }, 30000);  /* Check every 30 seconds */
+    }
 });
 
 function initializeDashboard() {
     console.log('🚀 Initializing Advanced AI Stock Trading Dashboard');
+    console.log('💾 Memory optimization: Active');
     updateSystemStatus();
 }
 
@@ -62,10 +123,13 @@ async function loadInitialData() {
         const stocksResponse = await axios.get(`${API_BASE}/stocks`);
         if (stocksResponse.data.success) {
             const stockSelect = document.getElementById('analysisStock');
-            stockSelect.innerHTML = '<option value="">Select a stock...</option>';
+            /* MEMORY FIX: Build options efficiently */
+            const options = ['<option value="">Select a stock...</option>'];
             stocksResponse.data.data.forEach(stock => {
-                stockSelect.innerHTML += `<option value="${stock}">${stock}</option>`;
+                options.push(`<option value="${stock}">${stock}</option>`);
             });
+            stockSelect.innerHTML = options.join('');
+            options.length = 0;
         }
         
         // Load dashboard statistics
@@ -202,6 +266,17 @@ function setupEventListeners() {
             analyzeStock();
         }
     });
+    
+    // Search box with debounce
+    let searchTimeout;
+    document.getElementById('stockSearch').addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            paginationState.search = this.value;
+            paginationState.currentPage = 1;
+            loadAllStocks();
+        }, 500); /* Wait 500ms after user stops typing */
+    });
 }
 
 // Tab switching
@@ -286,30 +361,51 @@ async function testSync() {
 
 async function loadAllStocks() {
     const button = event.target;
-    const originalText = button.innerHTML;
-    button.disabled = true;
-    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    let originalText, buttonElement;
+    
+    if (button) {
+        buttonElement = button;
+        originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    }
+    
+    // CRITICAL: Clear memory before loading
+    clearMemory();
     
     document.getElementById('stocksLoading').style.display = 'block';
     
     try {
-        console.log('🔄 Making API call to load stocks...');
-        const response = await axios.get(`${API_BASE}/db/all-stocks-fast`);
+        console.log('🔄 Loading stocks with pagination (memory optimized)...');
         
-        console.log('📡 API Response received:', response.data);
+        /* Build query parameters */
+        const params = {
+            page: paginationState.currentPage,
+            per_page: Math.min(paginationState.perPage, 50),  // MAX 50 per page for memory
+            sort_by: paginationState.sortBy,
+            sort_order: paginationState.sortOrder
+        };
+        
+        if (paginationState.search) {
+            params.search = paginationState.search;
+        }
+        
+        const response = await axios.get(`${API_BASE}/db/all-stocks-fast`, { params });
         
         if (response.data.success) {
-            console.log('✅ API call successful');
-            console.log('📊 Raw data length:', response.data.data?.length);
-            console.log('🔍 First stock sample:', response.data.data?.[0]);
-            
+            // MEMORY SAFE: Replace, don't append
             currentStocks = response.data.data;
-            console.log('📋 currentStocks assigned:', currentStocks.length);
+            paginationState.totalCount = response.data.total_count;
+            paginationState.totalPages = response.data.total_pages;
+            paginationState.currentPage = response.data.page;
+            
+            console.log(`📋 Page ${paginationState.currentPage}/${paginationState.totalPages}, ${currentStocks.length} stocks`);
+            console.log(`💾 Memory: ~${(currentStocks.length * 0.5).toFixed(1)}MB`);
             
             displayStocksTable();
-            showSuccess(`✅ Loaded ${currentStocks.length} stocks from database!`);
+            updatePaginationControls();
+            showSuccess(`✅ Loaded ${currentStocks.length} stocks (Page ${paginationState.currentPage}/${paginationState.totalPages})`);
         } else {
-            console.error('❌ API returned error:', response.data.error);
             showError(`Failed to load stocks: ${response.data.error}`);
         }
     } catch (error) {
@@ -320,8 +416,10 @@ async function loadAllStocks() {
         }
     } finally {
         document.getElementById('stocksLoading').style.display = 'none';
-        button.disabled = false;
-        button.innerHTML = originalText;
+        if (buttonElement) {
+            buttonElement.disabled = false;
+            buttonElement.innerHTML = originalText;
+        }
     }
 }
 
@@ -437,38 +535,27 @@ async function loadPredictionsData() {
 }
 
 function displayStocksTable() {
-    console.log('📊 displayStocksTable called');
-    console.log('📋 currentStocks:', currentStocks);
-    console.log('📈 currentStocks.length:', currentStocks.length);
-    
     const tbody = document.getElementById('stocksTableBody');
-    console.log('🎯 tbody element:', tbody);
     
     if (!tbody) {
         console.error('❌ stocksTableBody element not found!');
-        showError('Table element not found in DOM');
         return;
     }
     
     if (currentStocks.length === 0) {
-        console.log('⚠️ No stocks data to display');
         tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 3rem;"><i class="fas fa-info-circle"></i> No stocks data available</td></tr>';
         return;
     }
     
-    console.log('✅ Displaying', currentStocks.length, 'stocks');
-    
     try {
-        tbody.innerHTML = currentStocks.map((stock, index) => {
-            // Debug first few stocks
-            if (index < 3) {
-                console.log(`Stock ${index}:`, stock);
-            }
-            
+        // MEMORY OPTIMIZATION: Build HTML efficiently
+        const rows = [];
+        for (let i = 0; i < currentStocks.length; i++) {
+            const stock = currentStocks[i];
             const priceClass = stock.today_pct > 0 ? 'price-up' : stock.today_pct < 0 ? 'price-down' : 'price-neutral';
             const predClass = stock.predicted_change_pct > 0 ? 'price-up' : stock.predicted_change_pct < 0 ? 'price-down' : 'price-neutral';
             
-            return `
+            rows.push(`
                 <tr onclick="selectStock('${stock.stock_name}')" style="cursor: pointer;">
                     <td><strong>${stock.stock_name}</strong></td>
                     <td>₹${stock.today_close.toFixed(2)}</td>
@@ -480,10 +567,13 @@ function displayStocksTable() {
                     <td>${stock.confidence ? stock.confidence.toFixed(1) + '%' : '--'}</td>
                     <td>${stock.volume ? stock.volume.toLocaleString() : '--'}</td>
                 </tr>
-            `;
-        }).join('');
+            `);
+        }
         
-        console.log('✅ Table HTML updated successfully');
+        tbody.innerHTML = rows.join('');
+        
+        // Clear temp array
+        rows.length = 0;
         
     } catch (error) {
         console.error('❌ Error updating table:', error);
@@ -494,16 +584,21 @@ function displayStocksTable() {
 function displayPredictionsTable() {
     const tbody = document.getElementById('predictionsTableBody');
     
+    if (!tbody) return;
+    
     if (currentPredictions.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 3rem;"><i class="fas fa-info-circle"></i> No predictions available</td></tr>';
         return;
     }
     
-    tbody.innerHTML = currentPredictions.map(stock => {
+    /* MEMORY OPTIMIZATION: Build HTML efficiently without map() */
+    const rows = [];
+    for (let i = 0; i < currentPredictions.length; i++) {
+        const stock = currentPredictions[i];
         const predClass = stock.predicted_change_pct > 0 ? 'price-up' : stock.predicted_change_pct < 0 ? 'price-down' : 'price-neutral';
         const recommendation = getRecommendation(stock.predicted_change_pct, stock.confidence);
         
-        return `
+        rows.push(`
             <tr onclick="selectStock('${stock.stock_name}')" style="cursor: pointer;">
                 <td><strong>${stock.stock_name}</strong></td>
                 <td>₹${stock.today_close.toFixed(2)}</td>
@@ -520,8 +615,11 @@ function displayPredictionsTable() {
                 <td><span class="badge info">${getModelBadge(stock.model_used)}</span></td>
                 <td><span class="badge ${recommendation.class}">${recommendation.text}</span></td>
             </tr>
-        `;
-    }).join('');
+        `);
+    }
+    
+    tbody.innerHTML = rows.join('');
+    rows.length = 0;  /* Clear temp array */
 }
 
 function getModelBadge(model) {
@@ -794,39 +892,75 @@ async function loadValidationData() {
     validatePredictions();
 }
 
-// Table sorting
-function sortTable(columnIndex) {
-    if (currentSort.column === columnIndex) {
-        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+/* Pagination control functions */
+function updatePaginationControls() {
+    const controls = document.getElementById('paginationControls');
+    const pageInfo = document.getElementById('pageInfo');
+    const totalInfo = document.getElementById('totalStocksInfo');
+    const firstBtn = document.getElementById('firstPageBtn');
+    const prevBtn = document.getElementById('prevPageBtn');
+    const nextBtn = document.getElementById('nextPageBtn');
+    const lastBtn = document.getElementById('lastPageBtn');
+    
+    controls.style.display = 'block';
+    pageInfo.textContent = `Page ${paginationState.currentPage} of ${paginationState.totalPages}`;
+    totalInfo.textContent = `Total: ${paginationState.totalCount.toLocaleString()} stocks`;
+    
+    /* Disable buttons at boundaries */
+    firstBtn.disabled = paginationState.currentPage === 1;
+    prevBtn.disabled = paginationState.currentPage === 1;
+    nextBtn.disabled = paginationState.currentPage === paginationState.totalPages;
+    lastBtn.disabled = paginationState.currentPage === paginationState.totalPages;
+}
+
+function loadPage(page) {
+    paginationState.currentPage = page;
+    loadAllStocks();
+}
+
+function loadNextPage() {
+    if (paginationState.currentPage < paginationState.totalPages) {
+        paginationState.currentPage++;
+        loadAllStocks();
+    }
+}
+
+function loadPrevPage() {
+    if (paginationState.currentPage > 1) {
+        paginationState.currentPage--;
+        loadAllStocks();
+    }
+}
+
+function loadLastPage() {
+    paginationState.currentPage = paginationState.totalPages;
+    loadAllStocks();
+}
+
+function changePerPage() {
+    paginationState.perPage = parseInt(document.getElementById('perPageSelect').value);
+    paginationState.currentPage = 1;
+    loadAllStocks();
+}
+
+/* Server-side table sorting */
+function sortTableServer(column) {
+    /* Toggle sort order if clicking same column */
+    if (paginationState.sortBy === column) {
+        paginationState.sortOrder = paginationState.sortOrder === 'asc' ? 'desc' : 'asc';
     } else {
-        currentSort.column = columnIndex;
-        currentSort.direction = 'desc';
+        paginationState.sortBy = column;
+        paginationState.sortOrder = 'desc';
     }
     
-    currentStocks.sort((a, b) => {
-        let aVal, bVal;
-        
-        switch(columnIndex) {
-            case 0: aVal = a.stock_name; bVal = b.stock_name; break;
-            case 1: aVal = a.today_close; bVal = b.today_close; break;
-            case 2: aVal = a.today_pct; bVal = b.today_pct; break;
-            case 3: aVal = a.week_7day_pct; bVal = b.week_7day_pct; break;
-            case 4: aVal = a.predicted_price || 0; bVal = b.predicted_price || 0; break;
-            case 5: aVal = a.predicted_change_pct || 0; bVal = b.predicted_change_pct || 0; break;
-            case 6: aVal = a.model_used || ''; bVal = b.model_used || ''; break;
-            case 7: aVal = a.confidence || 0; bVal = b.confidence || 0; break;
-            case 8: aVal = a.volume; bVal = b.volume; break;
-            default: return 0;
-        }
-        
-        if (typeof aVal === 'string') {
-            return currentSort.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-        } else {
-            return currentSort.direction === 'asc' ? aVal - bVal : bVal - aVal;
-        }
-    });
-    
-    displayStocksTable();
+    paginationState.currentPage = 1; /* Reset to first page when sorting */
+    loadAllStocks();
+}
+
+/* Legacy client-side sorting - kept for backwards compatibility */
+function sortTable(columnIndex) {
+    /* This function is deprecated, use sortTableServer instead */
+    console.warn('sortTable() is deprecated, use sortTableServer() instead');
 }
 
 function sortPredictionsTable(columnIndex) {
@@ -975,6 +1109,95 @@ async function debugLoadStocks() {
     } catch (error) {
         console.error('🐛 Debug error:', error);
         showError(`🐛 Debug failed: ${error.message}`);
+    }
+}
+
+/* Universal AI Training Functions */
+async function trainUniversalModel() {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Training...';
+    
+    const statusElement = document.getElementById('universalModelStatus');
+    statusElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Training on all stocks... Please wait';
+    
+    try {
+        showSuccess('🌍 Starting universal model training on all stocks...');
+        
+        const response = await axios.post(`${API_BASE}/db/train-universal`, {
+            max_stocks: null  /* Train on all stocks - backend can handle it */
+        });
+        
+        if (response.data.success) {
+            const models = response.data.models;
+            let message = '🎉 Universal Model Training Complete!<br><br>';
+            
+            for (const [modelName, metrics] of Object.entries(models)) {
+                message += `<strong>${modelName.replace('_', ' ').toUpperCase()}</strong><br>`;
+                message += `  Direction Accuracy: ${metrics.direction_accuracy.toFixed(2)}%<br>`;
+                message += `  R² Score: ${metrics.test_r2.toFixed(4)}<br><br>`;
+            }
+            
+            statusElement.innerHTML = 
+                '<i class="fas fa-check-circle"></i> Universal model trained successfully!';
+            
+            showSuccess(message);
+        } else {
+            statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i> Training failed';
+            showError('Training failed: ' + response.data.error);
+        }
+    } catch (error) {
+        statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error';
+        showError('Training error: ' + error.message);
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalText;
+    }
+}
+
+async function generateUniversalPredictions() {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Predicting...';
+    
+    try {
+        showSuccess('🔮 Generating predictions using universal model...');
+        
+        const response = await axios.post(`${API_BASE}/db/predict-all-universal`, {
+            limit: 5000
+        });
+        
+        if (response.data.success) {
+            const results = response.data.results;
+            
+            showSuccess(`
+                🎯 Universal Predictions Complete!<br>
+                ✅ Success: ${results.success} stocks<br>
+                ❌ Failed: ${results.failed}<br>
+                📅 Date: ${response.data.prediction_date}<br><br>
+                <small>These predictions use a model trained on ALL stocks combined!</small>
+            `);
+            
+            /* Refresh stocks list to show new predictions */
+            if (currentStocks.length > 0) {
+                loadAllStocks();
+            }
+            
+            loadDashboardStats();
+        } else {
+            showError('Prediction failed: ' + response.data.error);
+        }
+    } catch (error) {
+        if (error.response?.status === 400) {
+            showError('Universal model not trained yet. Please train the model first.');
+        } else {
+            showError('Prediction error: ' + error.message);
+        }
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalText;
     }
 }
 

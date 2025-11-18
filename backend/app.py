@@ -30,7 +30,8 @@ from database import (
     get_database_stats, get_stocks_list,
     save_prediction, get_predictions_all_stocks, get_prediction_for_stock,
     save_validation_result, get_validation_results, get_model_performance_stats,
-    get_top_performing_stocks, get_daily_accuracy_trend, optimize_database
+    get_top_performing_stocks, get_daily_accuracy_trend, optimize_database,
+    sync_pending_data_to_db
 )
 
 app = Flask(__name__, static_folder='../frontend', static_url_path='')
@@ -614,15 +615,30 @@ def test_sync():
 
 @app.route('/api/db/all-stocks-fast', methods=['GET'])
 def get_all_stocks_fast():
-    """Get all stocks data from database with 7-day performance - OPTIMIZED!"""
+    """Get all stocks data from database with 7-day performance - OPTIMIZED with PAGINATION!"""
     try:
-        df_stocks = get_latest_prices_all_stocks()
+        # Get pagination parameters
+        page = request.args.get('page', type=int)
+        per_page = request.args.get('per_page', type=int, default=50)
+        sort_by = request.args.get('sort_by', 'stock_name')
+        sort_order = request.args.get('sort_order', 'asc')
+        search = request.args.get('search', None)
+        
+        # Get paginated data from database
+        df_stocks, total_count = get_latest_prices_all_stocks(
+            page=page, 
+            per_page=per_page, 
+            sort_by=sort_by, 
+            sort_order=sort_order,
+            search=search
+        )
+        
         df_predictions = get_predictions_all_stocks()
         
         # Merge predictions if available
         if not df_predictions.empty:
             df = df_stocks.merge(
-                df_predictions[['stock_name', 'predicted_price', 'predicted_change_pct', 'confidence']],
+                df_predictions[['stock_name', 'predicted_price', 'predicted_change_pct', 'confidence', 'model_used']],
                 on='stock_name',
                 how='left'
             )
@@ -631,6 +647,7 @@ def get_all_stocks_fast():
             df['predicted_price'] = None
             df['predicted_change_pct'] = None
             df['confidence'] = None
+            df['model_used'] = None
         
         # Helper function to safely convert to float, handling NaN and Infinity
         def safe_float(value, default=0):
@@ -687,12 +704,21 @@ def get_all_stocks_fast():
                 'confidence': safe_float(row['confidence'], None) if pd.notna(row['confidence']) else None
             })
         
+        # Calculate pagination info
+        total_pages = (total_count + per_page - 1) // per_page if page is not None else 1
+        
         return jsonify({
             'success': True,
             'data': stocks_data,
             'count': len(stocks_data),
+            'total_count': total_count,
+            'page': page if page is not None else 1,
+            'per_page': per_page,
+            'total_pages': total_pages,
             'cached': True,
-            'has_predictions': not df_predictions.empty
+            'has_predictions': not df_predictions.empty,
+            'sort_by': sort_by,
+            'sort_order': sort_order
         })
         
     except Exception as e:
@@ -716,41 +742,101 @@ def get_db_stats():
 
 @app.route('/api/db/update-today', methods=['POST'])
 def update_today_data():
-    """Update only today's data for all stocks - FAST UPDATE"""
+    """Update database with pending days' prices by re-downloading CSV files and syncing what's missing"""
     try:
-        import yfinance as yf
+        import subprocess
         
-        # Get list of stocks from database
-        stocks = get_stocks_list()
+        print("\n" + "="*70)
+        print("🔄 UPDATING DATABASE WITH PENDING DATA")
+        print("="*70)
+        
+        # Step 1: Run fetch_stocks.py to download fresh CSV files
+        print("\n📥 Step 1: Downloading fresh CSV files using fetch_stocks.py...")
+        print("   This will take 2-5 minutes depending on network speed...")
+        
+        fetch_stocks_path = os.path.join(os.path.dirname(__file__), '..', 'fetch_stocks.py')
+        
+        # Run fetch_stocks.py with real-time output
+        try:
+            process = subprocess.Popen(
+                [sys.executable, fetch_stocks_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,  # Line buffered
+                universal_newlines=True
+            )
+            
+            # Stream output in real-time
+            stdout_lines = []
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    print(line.rstrip())  # Print to console immediately
+                    stdout_lines.append(line)
+                    sys.stdout.flush()  # Force flush
+            
+            process.wait(timeout=600)  # Wait for process to complete
+            stdout = ''.join(stdout_lines)
+            
+            if process.returncode != 0:
+                print(f"⚠️ fetch_stocks.py returned error code {process.returncode}")
+                # Don't fail completely, try to sync what we have
+            else:
+                print("✅ CSV files downloaded successfully")
+                
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return jsonify({
+                'success': False,
+                'error': 'CSV download timeout (>10 minutes)'
+            }), 500
+        except Exception as e:
+            print(f"⚠️ Error running fetch_stocks.py: {e}")
+            return jsonify({
+                'success': False,
+                'error': f'Failed to run fetch_stocks.py: {str(e)}'
+            }), 500
+        
+        # Step 2: Sync pending data from CSV files to database
+        print("\n📊 Step 2: Syncing pending data to database...")
+        
+        eod_dir = os.path.join(os.path.dirname(__file__), '..', 'EOD')
+        stock_files = glob.glob(os.path.join(eod_dir, '*.csv'))
         
         results = {
             'success': 0,
             'failed': 0,
-            'skipped': 0,
+            'no_new_data': 0,
+            'new_records': 0,
             'errors': []
         }
         
-        today = datetime.now().date()
-        
-        for stock_name in stocks[:50]:  # Limit to 50 for now
+        for i, file_path in enumerate(stock_files, 1):
+            stock_name = os.path.basename(file_path).replace('.csv', '')
+            
             try:
-                # Download only last 2 days
-                ticker = yf.Ticker(f"{stock_name}.NS")
-                df = ticker.history(period='2d')
+                # Load CSV
+                df = load_stock_csv(file_path)
+                if df.empty:
+                    results['failed'] += 1
+                    continue
                 
-                if not df.empty:
-                    df = df.reset_index()
-                    df.columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-                    
-                    # Only save if we have today's data
-                    latest_date = pd.to_datetime(df['Date'].iloc[-1]).date()
-                    if latest_date == today:
-                        save_stock_to_db(stock_name, df.tail(1))
-                        results['success'] += 1
+                # Sync only pending data (incremental)
+                success, result = sync_pending_data_to_db(stock_name, df)
+                
+                if success:
+                    if result == 0:
+                        results['no_new_data'] += 1
                     else:
-                        results['skipped'] += 1
+                        results['success'] += 1
+                        results['new_records'] += result
+                        print(f"   [{i}/{len(stock_files)}] {stock_name}: +{result} new records")
                 else:
-                    results['skipped'] += 1
+                    results['failed'] += 1
+                    results['errors'].append({
+                        'stock': stock_name,
+                        'error': result
+                    })
                     
             except Exception as e:
                 results['failed'] += 1
@@ -759,13 +845,22 @@ def update_today_data():
                     'error': str(e)
                 })
         
+        print("\n" + "="*70)
+        print("✅ DATABASE UPDATE COMPLETED")
+        print("="*70)
+        print(f"✅ Updated: {results['success']} stocks")
+        print(f"📊 New records: {results['new_records']}")
+        print(f"⏭️ No new data: {results['no_new_data']}")
+        print(f"❌ Failed: {results['failed']}")
+        
         return jsonify({
             'success': True,
-            'message': f"Updated {results['success']} stocks",
+            'message': f"Synced {results['success']} stocks with {results['new_records']} new records",
             'results': results
         })
         
     except Exception as e:
+        print(f"❌ Update failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/db/predict-all', methods=['POST'])
@@ -1291,6 +1386,166 @@ def optimize_database_endpoint():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/db/train-universal', methods=['POST'])
+def train_universal_model():
+    """Train universal AI model on combined data from all stocks"""
+    try:
+        from universal_ai_trainer import UniversalStockPredictor
+        
+        data = request.get_json() or {}
+        max_stocks = data.get('max_stocks', None)  # None = all stocks
+        
+        print(f"🌍 Starting universal model training (max_stocks={max_stocks})...")
+        
+        # Initialize predictor
+        eod_dir = os.path.join(os.path.dirname(__file__), '..', 'EOD')
+        predictor = UniversalStockPredictor(eod_directory=eod_dir)
+        
+        # Train models - backend can use RAM
+        models = predictor.train_all_models(max_stocks=max_stocks)
+        
+        # Save models
+        models_dir = os.path.join(os.path.dirname(__file__), '..', 'universal_models')
+        predictor.save_models(directory=models_dir)
+        
+        # Prepare results
+        results = {}
+        for model_name, model_info in models.items():
+            results[model_name] = {
+                'direction_accuracy': model_info['direction_accuracy'],
+                'test_r2': model_info['test_r2'],
+                'test_mae': model_info['test_mae']
+            }
+        
+        return jsonify({
+            'success': True,
+            'message': 'Universal model training completed',
+            'models': results,
+            'models_saved': models_dir
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/db/predict-universal/<stock_name>', methods=['GET'])
+def predict_universal(stock_name):
+    """Predict using universal model trained on all stocks"""
+    try:
+        from universal_ai_trainer import UniversalStockPredictor
+        
+        # Initialize and load models
+        eod_dir = os.path.join(os.path.dirname(__file__), '..', 'EOD')
+        models_dir = os.path.join(os.path.dirname(__file__), '..', 'universal_models')
+        
+        predictor = UniversalStockPredictor(eod_directory=eod_dir)
+        
+        # Check if models exist
+        if not os.path.exists(models_dir):
+            return jsonify({
+                'success': False, 
+                'error': 'Universal models not trained yet. Call /api/db/train-universal first.'
+            }), 400
+        
+        predictor.load_models(directory=models_dir)
+        
+        # Make prediction
+        prediction = predictor.predict_stock(stock_name)
+        
+        # Save prediction to database
+        prediction_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        save_prediction(
+            stock_name=stock_name,
+            prediction_date=prediction_date,
+            current_price=prediction['current_price'],
+            predicted_price=prediction['predicted_price'],
+            predicted_change_pct=prediction['predicted_change_pct'],
+            confidence=prediction['confidence'],
+            model_used='Universal_Ensemble'
+        )
+        
+        return jsonify({
+            'success': True,
+            'prediction': prediction
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/db/predict-all-universal', methods=['POST'])
+def predict_all_universal():
+    """Generate predictions for all stocks using universal model"""
+    try:
+        from universal_ai_trainer import UniversalStockPredictor
+        
+        data = request.get_json() or {}
+        limit = data.get('limit', 5000)
+        
+        # Initialize and load models
+        eod_dir = os.path.join(os.path.dirname(__file__), '..', 'EOD')
+        models_dir = os.path.join(os.path.dirname(__file__), '..', 'universal_models')
+        
+        if not os.path.exists(models_dir):
+            return jsonify({
+                'success': False,
+                'error': 'Universal models not trained yet. Train them first.'
+            }), 400
+        
+        predictor = UniversalStockPredictor(eod_directory=eod_dir)
+        predictor.load_models(directory=models_dir)
+        
+        # Get list of stocks
+        stocks = get_stocks_list()[:limit]
+        
+        results = {
+            'success': 0,
+            'failed': 0,
+            'errors': []
+        }
+        
+        prediction_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        print(f"🌍 Generating universal predictions for {len(stocks)} stocks...")
+        
+        for i, stock_name in enumerate(stocks, 1):
+            try:
+                # Make prediction
+                prediction = predictor.predict_stock(stock_name)
+                
+                # Save to database
+                save_prediction(
+                    stock_name=stock_name,
+                    prediction_date=prediction_date,
+                    current_price=prediction['current_price'],
+                    predicted_price=prediction['predicted_price'],
+                    predicted_change_pct=prediction['predicted_change_pct'],
+                    confidence=prediction['confidence'],
+                    model_used='Universal_Ensemble'
+                )
+                
+                results['success'] += 1
+                
+                if i % 50 == 0:
+                    print(f"   ✓ Processed {i}/{len(stocks)} stocks...")
+                
+            except Exception as e:
+                results['failed'] += 1
+                results['errors'].append({
+                    'stock': stock_name,
+                    'error': str(e)
+                })
+        
+        print(f"✅ Universal predictions complete: {results['success']} success, {results['failed']} failed")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Generated universal predictions for {results["success"]} stocks',
+            'results': results,
+            'prediction_date': prediction_date
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/db/analytics/predictions-vs-actuals', methods=['GET'])
 def get_predictions_vs_actuals():
     """Get predictions vs actual values for scatter plot analysis"""
@@ -1373,9 +1628,9 @@ if __name__ == '__main__':
     print("   POST /api/filter              - Filter stocks")
     print("   GET  /api/strategies          - Get strategies")
     print("\n💾 Database Cache Endpoints (OPTIMIZED!):")
-    print("   POST /api/db/sync-all         - Load all CSVs into DB")
+    print("   POST /api/db/sync-all         - Load all CSVs into DB (initial sync)")
     print("   GET  /api/db/all-stocks-fast  - Get all stocks + 7-day % (INSTANT!)")
-    print("   POST /api/db/update-today     - Update today's data only")
+    print("   POST /api/db/update-today     - Download fresh CSVs & sync pending data")
     print("   POST /api/db/predict-all      - Generate predictions for all stocks")
     print("   GET  /api/db/stats            - Database statistics")
     print("   PUT  /api/strategies          - Update strategies")

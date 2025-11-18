@@ -214,8 +214,19 @@ def get_stock_from_db(stock_name, limit=None):
     finally:
         conn.close()
 
-def get_latest_prices_all_stocks():
-    """Get latest price data for all stocks with 7-day performance - OPTIMIZED!"""
+def get_latest_prices_all_stocks(page=None, per_page=None, sort_by='stock_name', sort_order='asc', search=None):
+    """Get latest price data for all stocks with 7-day performance - OPTIMIZED with PAGINATION!
+    
+    Args:
+        page: Page number (1-indexed), None for all results
+        per_page: Results per page, None for all results
+        sort_by: Column to sort by (stock_name, today_close, today_pct, week_7day_pct, etc)
+        sort_order: 'asc' or 'desc'
+        search: Search term for stock name filter
+    
+    Returns:
+        tuple: (dataframe, total_count)
+    """
     conn = sqlite3.connect(DB_FILE)
     
     try:
@@ -224,6 +235,7 @@ def get_latest_prices_all_stocks():
             WITH latest_dates AS (
                 SELECT stock_name, MAX(date) as max_date
                 FROM stock_data
+                {search_clause}
                 GROUP BY stock_name
             ),
             ranked_data AS (
@@ -280,10 +292,17 @@ def get_latest_prices_all_stocks():
                 s.avg_volume
             FROM aggregated a
             LEFT JOIN stats_52w s ON a.stock_name = s.stock_name
-            ORDER BY a.stock_name
         '''
         
-        df = pd.read_sql_query(query, conn)
+        # Add search clause
+        search_clause = ""
+        if search:
+            search_clause = f"WHERE stock_name LIKE '%{search}%'"
+        
+        query = query.format(search_clause=search_clause)
+        
+        # Get total count before pagination
+        df_all = pd.read_sql_query(query, conn)
         
         # Convert all numeric columns to float (handle None values)
         numeric_cols = ['today_open', 'today_close', 'today_high', 'today_low', 'volume',
@@ -291,43 +310,58 @@ def get_latest_prices_all_stocks():
                        'day6_close', 'day7_close', 'day14_close', 'day21_close', 'day31_close',
                        'week_52_high', 'week_52_low', 'avg_volume']
         for col in numeric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+            if col in df_all.columns:
+                df_all[col] = pd.to_numeric(df_all[col], errors='coerce')
         
         # Calculate all metrics with safe division
-        df['today_change'] = df['today_close'] - df['day1_close']
-        df['today_pct'] = ((df['today_close'] - df['day1_close']) / df['day1_close'].replace(0, np.nan) * 100).round(2)
-        df['yesterday_pct'] = ((df['day1_close'] - df['day2_close']) / df['day2_close'].replace(0, np.nan) * 100).round(2)
+        df_all['today_change'] = df_all['today_close'] - df_all['day1_close']
+        df_all['today_pct'] = ((df_all['today_close'] - df_all['day1_close']) / df_all['day1_close'].replace(0, np.nan) * 100).round(2)
+        df_all['yesterday_pct'] = ((df_all['day1_close'] - df_all['day2_close']) / df_all['day2_close'].replace(0, np.nan) * 100).round(2)
         
         # Individual day percentage changes
-        df['day2_pct'] = ((df['day2_close'] - df['day3_close']) / df['day3_close'].replace(0, np.nan) * 100).round(2)
-        df['day3_pct'] = ((df['day3_close'] - df['day4_close']) / df['day4_close'].replace(0, np.nan) * 100).round(2)
-        df['day4_pct'] = ((df['day4_close'] - df['day5_close']) / df['day5_close'].replace(0, np.nan) * 100).round(2)
-        df['day5_pct'] = ((df['day5_close'] - df['day6_close']) / df['day6_close'].replace(0, np.nan) * 100).round(2)
-        df['day6_pct'] = ((df['day6_close'] - df['day7_close']) / df['day7_close'].replace(0, np.nan) * 100).round(2)
+        df_all['day2_pct'] = ((df_all['day2_close'] - df_all['day3_close']) / df_all['day3_close'].replace(0, np.nan) * 100).round(2)
+        df_all['day3_pct'] = ((df_all['day3_close'] - df_all['day4_close']) / df_all['day4_close'].replace(0, np.nan) * 100).round(2)
+        df_all['day4_pct'] = ((df_all['day4_close'] - df_all['day5_close']) / df_all['day5_close'].replace(0, np.nan) * 100).round(2)
+        df_all['day5_pct'] = ((df_all['day5_close'] - df_all['day6_close']) / df_all['day6_close'].replace(0, np.nan) * 100).round(2)
+        df_all['day6_pct'] = ((df_all['day6_close'] - df_all['day7_close']) / df_all['day7_close'].replace(0, np.nan) * 100).round(2)
         
         # Period percentage changes
-        df['week_7day_pct'] = ((df['today_close'] - df['day7_close']) / df['day7_close'].replace(0, np.nan) * 100).round(2)
-        df['week_7to14_pct'] = ((df['day7_close'] - df['day14_close']) / df['day14_close'].replace(0, np.nan) * 100).round(2)
-        df['week_14to21_pct'] = ((df['day14_close'] - df['day21_close']) / df['day21_close'].replace(0, np.nan) * 100).round(2)
-        df['week_21to31_pct'] = ((df['day21_close'] - df['day31_close']) / df['day31_close'].replace(0, np.nan) * 100).round(2)
+        df_all['week_7day_pct'] = ((df_all['today_close'] - df_all['day7_close']) / df_all['day7_close'].replace(0, np.nan) * 100).round(2)
+        df_all['week_7to14_pct'] = ((df_all['day7_close'] - df_all['day14_close']) / df_all['day14_close'].replace(0, np.nan) * 100).round(2)
+        df_all['week_14to21_pct'] = ((df_all['day14_close'] - df_all['day21_close']) / df_all['day21_close'].replace(0, np.nan) * 100).round(2)
+        df_all['week_21to31_pct'] = ((df_all['day21_close'] - df_all['day31_close']) / df_all['day31_close'].replace(0, np.nan) * 100).round(2)
         
         # Fill NaN values with 0 for percentage columns
         pct_cols = ['today_pct', 'yesterday_pct', 'day2_pct', 'day3_pct', 'day4_pct', 'day5_pct', 'day6_pct',
                     'week_7day_pct', 'week_7to14_pct', 'week_14to21_pct', 'week_21to31_pct']
-        df[pct_cols] = df[pct_cols].fillna(0)
+        df_all[pct_cols] = df_all[pct_cols].fillna(0)
         
         # Intraday change
-        df['intraday_change'] = ((df['today_close'] - df['today_open']) / df['today_open'] * 100).round(2)
+        df_all['intraday_change'] = ((df_all['today_close'] - df_all['today_open']) / df_all['today_open'] * 100).round(2)
         
         # Volume ratio
-        df['volume_ratio'] = (df['volume'] / df['avg_volume']).round(2)
+        df_all['volume_ratio'] = (df_all['volume'] / df_all['avg_volume']).round(2)
         
         # 52-week position
-        df['week_52_position'] = ((df['today_close'] - df['week_52_low']) / 
-                                  (df['week_52_high'] - df['week_52_low']) * 100).round(1)
+        df_all['week_52_position'] = ((df_all['today_close'] - df_all['week_52_low']) / 
+                                  (df_all['week_52_high'] - df_all['week_52_low']) * 100).round(1)
         
-        return df
+        total_count = len(df_all)
+        
+        # Apply sorting if specified
+        if sort_by in df_all.columns:
+            ascending = (sort_order.lower() == 'asc')
+            df_all = df_all.sort_values(by=sort_by, ascending=ascending, na_position='last')
+        
+        # Apply pagination if specified
+        if page is not None and per_page is not None:
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            df = df_all.iloc[start_idx:end_idx]
+        else:
+            df = df_all
+        
+        return df, total_count
         
     finally:
         conn.close()
@@ -650,6 +684,82 @@ def get_daily_accuracy_trend(days=30):
         
         df = pd.read_sql_query(query, conn)
         return df.to_dict('records')
+    finally:
+        conn.close()
+
+def sync_pending_data_to_db(stock_name, df):
+    """Sync only NEW/PENDING data for a stock (incremental update)"""
+    conn = sqlite3.connect(DB_FILE)
+    
+    try:
+        # Get the latest date in database for this stock
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT MAX(date) FROM stock_data WHERE stock_name = ?
+        ''', (stock_name,))
+        
+        result = cursor.fetchone()
+        last_date = result[0] if result[0] else None
+        
+        if last_date:
+            # Convert last_date to datetime for comparison
+            last_date = pd.to_datetime(last_date)
+            
+            # Filter dataframe to only include dates AFTER last_date
+            df_copy = df.copy()
+            df_copy['Date'] = pd.to_datetime(df_copy['Date'])
+            df_pending = df_copy[df_copy['Date'] > last_date]
+            
+            if df_pending.empty:
+                return True, 0  # No new data to sync
+            
+            # Prepare pending data for insertion
+            df_pending['stock_name'] = stock_name
+            df_pending['Date'] = df_pending['Date'].dt.strftime('%Y-%m-%d')
+            
+            # Ensure all required columns exist
+            required_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+            columns_map = {
+                'Date': 'date',
+                'Open': 'open',
+                'High': 'high',
+                'Low': 'low',
+                'Close': 'close',
+                'Volume': 'volume',
+                'stock_name': 'stock_name'
+            }
+            
+            df_save = df_pending[list(columns_map.keys())].rename(columns=columns_map)
+            
+            # Insert new data
+            df_save.to_sql('stock_data', conn, if_exists='append', index=False)
+            
+            # Update metadata
+            last_row = df_pending.iloc[-1]
+            cursor.execute('''
+                UPDATE sync_metadata 
+                SET last_sync = ?,
+                    record_count = record_count + ?,
+                    last_date = ?,
+                    last_close = ?
+                WHERE stock_name = ?
+            ''', (
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                len(df_save),
+                last_row['Date'],
+                float(last_row['Close']),
+                stock_name
+            ))
+            
+            conn.commit()
+            return True, len(df_save)
+        else:
+            # No existing data, do full sync
+            return save_stock_to_db(stock_name, df)
+        
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
     finally:
         conn.close()
 

@@ -626,24 +626,36 @@ async function loadFromDatabase() {
 async function updateTodayOnly() {
     const button = event.target;
     button.disabled = true;
-    button.textContent = '⏳ Updating...';
+    button.textContent = '⏳ Downloading CSV & Syncing...';
     
     try {
+        /* Warn user this takes time */
+        if (!confirm('⏱️ This will:\n\n1. Re-download ALL CSV files (2-5 minutes)\n2. Sync pending data to database\n\nThis ensures you have the latest prices for all stocks.\n\nContinue?')) {
+            button.textContent = '🔄 Update Pending Data';
+            button.disabled = false;
+            return;
+        }
+        
         const response = await axios.post(`${API_BASE}/db/update-today`);
         
         if (response.data.success) {
-            alert(`✅ Today's Data Updated!\n\nUpdated: ${response.data.results.success} stocks\nSkipped: ${response.data.results.skipped}\nFailed: ${response.data.results.failed}\n\nNow refresh the list!`);
+            alert(`✅ Database Synced with Pending Data!\n\n` +
+                `Updated: ${response.data.results.success} stocks\n` +
+                `New Records: ${response.data.results.new_records}\n` +
+                `No New Data: ${response.data.results.no_new_data}\n` +
+                `Failed: ${response.data.results.failed}\n\n` +
+                `Now refresh the list to see updated prices!`);
             button.textContent = '✅ Updated!';
             setTimeout(() => {
-                button.textContent = '🔄 Update Today';
+                button.textContent = '🔄 Update Pending Data';
                 button.disabled = false;
-            }, 2000);
+            }, 3000);
         } else {
             throw new Error(response.data.error);
         }
     } catch (error) {
         alert('❌ Error updating: ' + error.message);
-        button.textContent = '🔄 Update Today';
+        button.textContent = '🔄 Update Pending Data';
         button.disabled = false;
     }
 }
